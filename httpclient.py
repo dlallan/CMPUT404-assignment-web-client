@@ -3,6 +3,10 @@
 # Copyright 2022 Dillon Allan
 # Copyright 2016 Abram Hindle, https://github.com/tywtyw2002, and https://github.com/treedust
 #
+# Portions of the HTTP response parsing logic were based by my work
+# for CMPUT 404 Assignment 1 (Web Server), accessed 2022-2-06
+# at https://github.com/dlallan/CMPUT404-assignment-webserver
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -38,6 +42,9 @@ class HTTPResponse(object):
     def __init__(self, code=200, body=""):
         self.code = code
         self.body = body
+
+    def __str__(self) -> str:
+        return f"{self.code}, {self.body}"
 
 
 class HTTPClient(object):
@@ -112,6 +119,9 @@ class HTTPClient(object):
     def __init__(self) -> None:
         self.__logger = logging.getLogger(HTTPClient.__name__)
         self.__request = HTTPClient.HttpRequest()
+        # Set log level to desired verbosity
+        logging.basicConfig(
+            level=logging.DEBUG, format='[%(levelname)s - %(asctime)s - %(name)s] %(message)s')
 
     # def get_host_port(self,url):
 
@@ -134,18 +144,6 @@ class HTTPClient(object):
 
     def close(self):
         self.socket.close()
-
-    # read everything from the socket
-    def recvall(self, sock):
-        buffer = bytearray()
-        done = False
-        while not done:
-            part = sock.recv(1024)
-            if (part):
-                buffer.extend(part)
-            else:
-                done = not part
-        return buffer.decode('utf-8')
 
     def GET(self, url, args=None):
         '''Send a GET request to the url.'''
@@ -199,6 +197,17 @@ class HTTPClient(object):
 
         return True, parsed_uri
 
+    def __recvall(self, sock: socket.socket) -> bytes:
+        '''Read everything from the socket'''
+        buffer = bytearray()
+        while True:
+            part = sock.recv(self.RECV_MAX_CHUNK_SIZE)
+            if part:
+                buffer.extend(part)
+            else:
+                break
+        return bytes(buffer)
+
     def __send_request(self, host: bytes, port: int, request_bytes: bytes) -> bytes:
         response_data = b''
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
@@ -206,20 +215,67 @@ class HTTPClient(object):
             client_socket.connect((host, port))
             client_socket.sendall(request_bytes)
             client_socket.shutdown(socket.SHUT_WR)
-
-            # Receive the full response
-            response_data = b''
-            while True:
-                buffer = client_socket.recv(self.RECV_MAX_CHUNK_SIZE)
-                if buffer:
-                    response_data = b''.join((response_data, buffer))
-                else:
-                    break
+            response_data = self.__recvall(client_socket)
 
         return response_data
 
     def __parse_response(self, response_bytes: bytes) -> HTTPResponse:
-        pass
+        response_line = b''
+        header = {}
+        body = b''
+
+        # Only a rude webserver would send an empty response :(
+        if not response_bytes:
+            self.__logger.error("An empty response was received")
+            return HTTPResponse(HttpStatus.INTERNAL_SERVER_ERROR)
+
+        response_and_possibly_body = response_bytes.lstrip(
+            self.CRLF).split(self.CRLF_CRLF)
+
+        # There should be exactly two elements from splitting on CLRF_CLRF
+        if len(response_and_possibly_body) > 2:
+            self.__logger.error(
+                f'Unexpected additional elements found in response:\n{response_and_possibly_body}')
+            return HTTPResponse(HttpStatus.INTERNAL_SERVER_ERROR)
+
+        if len(response_and_possibly_body) == 2:
+            response_line_and_possibly_header, body = response_and_possibly_body
+
+        # No body
+        else:
+            response_line_and_possibly_header = response_and_possibly_body[0]
+
+        # Check header
+        response_and_possibly_header_parts = response_line_and_possibly_header.split(
+            self.CRLF, maxsplit=1)
+        if len(response_and_possibly_header_parts) == 2:
+            response_line, header_raw = response_and_possibly_header_parts
+            ok, header = self.__parse_header(header_raw)
+            if not ok:
+                self.__logger.error(f'Invalid header:\n{header_raw}')
+                return HTTPResponse(HttpStatus.INTERNAL_SERVER_ERROR)
+
+        # No header
+        else:
+            response_line = response_and_possibly_header_parts[0]
+
+        self.__logger.info(
+            f'Response line:\n{response_line}\nHeader:\n{header}\nBody (if any):\n{body}')
+        return HTTPResponse(HttpStatus.IM_A_TEAPOT)
+
+    def __parse_header(self, header: bytes) -> Tuple[bool, dict]:
+        parsed_header_entries = []
+        for entry in header.split(self.CRLF):
+            entry_parts = [part.strip()
+                           for part in entry.split(self.COLON, maxsplit=1)]
+
+            # Each header name must have a corresponding value
+            if len(entry_parts) != 2:
+                return False, {}
+
+            parsed_header_entries.append(entry_parts)
+
+        return True, dict(parsed_header_entries)
 
 
 if __name__ == "__main__":
