@@ -321,7 +321,7 @@ class HTTPClient(object):
         http_version, code, phrase = response_line_parts
 
         if http_version != self.HTTP_VERSION:
-            self.__logger.warn(
+            self.__logger.warning(
                 f'Server HTTP version is {http_version} which does not match request HTTP version {self.HTTP_VERSION}')
 
         if not code.isdigit():
