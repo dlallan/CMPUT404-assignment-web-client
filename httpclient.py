@@ -28,7 +28,7 @@ import platform
 import sys
 import socket
 import re
-from typing import Tuple
+from typing import Optional, Tuple
 # you may use urllib to encode data appropriately
 import urllib.parse
 from httpstatus import HttpStatus
@@ -261,7 +261,13 @@ class HTTPClient(object):
 
         self.__logger.info(
             f'Response line:\n{response_line}\nHeader:\n{header}\nBody (if any):\n{body}')
-        return HTTPResponse(HttpStatus.IM_A_TEAPOT)
+
+        ok, code, _ = self.__get_response_code(response_line)
+        if not ok:
+            return HTTPResponse(HttpStatus.INTERNAL_SERVER_ERROR)
+
+        # Note: assuming the body is a text document is a bad idea
+        return HTTPResponse(code, str(body, encoding=self.ENCODING))
 
     def __parse_header(self, header: bytes) -> Tuple[bool, dict]:
         parsed_header_entries = []
@@ -276,6 +282,25 @@ class HTTPClient(object):
             parsed_header_entries.append(entry_parts)
 
         return True, dict(parsed_header_entries)
+
+    def __get_response_code(self, response_line: bytes) -> Tuple[bool, Optional[int], Optional[bytes]]:
+        response_line_parts = response_line.split(self.SP, maxsplit=2)
+        if len(response_line_parts) != 3:
+            self.__logger.error((f'Incorrect number of tokens in response line: {response_line_parts}\n'
+                                 f'Expected 3 and received {len(response_line_parts)}'))
+            return False, None, None
+
+        http_version, code, phrase = response_line_parts
+
+        if http_version != self.HTTP_VERSION:
+            self.__logger.warn(
+                f'Server HTTP version is {http_version} which does not match request HTTP version {self.HTTP_VERSION}')
+
+        if not code.isdigit():
+            self.__logger.error(f'Code {code} is not a valid integer')
+            return False, None, None
+
+        return True, int(code), phrase
 
 
 if __name__ == "__main__":
