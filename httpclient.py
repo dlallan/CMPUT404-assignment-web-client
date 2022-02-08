@@ -64,6 +64,7 @@ class HTTPClient(object):
     # Accessed 2022-02-06
     DEFAULT_MIME_TYPE = b'application/octet-stream'
     DEFAULT_CHARSET = b'charset=utf-8'
+    DEFAULT_FORM_ENCODING = b'www/x-form-urlencoded'
 
     CRLF = b'\r\n'
     CRLF_CRLF = CRLF*2
@@ -119,9 +120,6 @@ class HTTPClient(object):
     def __init__(self) -> None:
         self.__logger = logging.getLogger(HTTPClient.__name__)
         self.__request = HTTPClient.HttpRequest()
-        # Set log level to desired verbosity
-        logging.basicConfig(
-            level=logging.DEBUG, format='[%(levelname)s - %(asctime)s - %(name)s] %(message)s')
 
     # def get_host_port(self,url):
 
@@ -176,9 +174,39 @@ class HTTPClient(object):
         return self.__parse_response(response_bytes)
 
     def POST(self, url, args=None):
-        code = 500
-        body = ""
-        return HTTPResponse(code, body)
+        '''Send a POST request to the url.'''
+
+        # Validate url
+        ok, parsed_url = self.__parse_url_str(url)
+        if not ok:
+            self.__logger.error(f'Invalid URL: {url}')
+            return HTTPResponse(500, b'')
+
+        if parsed_url.path:
+            quoted_path = bytes(urllib.parse.quote_plus(
+                parsed_url.path, safe=self.SEP), encoding=self.ENCODING)
+        else:
+            quoted_path = self.DEFAULT_PATH
+
+        self.__request = self.__request.set_request_line(b'POST', quoted_path) \
+            .update_header({b'Host': bytes(parsed_url.netloc, encoding=self.ENCODING)})
+
+        args_encoded = urllib.parse.urlencode(
+            args or b'').encode(self.ENCODING)
+        self.__request = self.__request.update_header({
+            b'Content-Type': self.DEFAULT_FORM_ENCODING,
+            b'Content-Length': str(len(args_encoded)).encode(self.ENCODING)
+        }) \
+            .set_body(args_encoded)
+
+        # Send request to server
+        request_bytes = self.__request.to_bytes()
+        host = parsed_url.hostname or parsed_url.path
+        port = parsed_url.port or HTTPClient.TCP_PORT
+        response_bytes = self.__send_request(host, port, request_bytes)
+        self.__logger.info(f"response_bytes:\n{response_bytes}")
+
+        return self.__parse_response(response_bytes)
 
     def command(self, url, command="GET", args=None):
         if (command == "POST"):
@@ -308,7 +336,7 @@ if __name__ == "__main__":
 
     # Set log level to desired verbosity
     logging.basicConfig(
-        level=logging.DEBUG, format='[%(levelname)s - %(asctime)s - %(name)s] %(message)s')
+        level=logging.CRITICAL, format='[%(levelname)s - %(asctime)s - %(name)s] %(message)s')
 
     if (len(sys.argv) <= 1):
         help()
