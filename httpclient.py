@@ -44,7 +44,7 @@ class HTTPResponse(object):
         self.body = body
 
     def __str__(self) -> str:
-        return f"{self.code}, {self.body}"
+        return f"{self.code}\n{self.body}"
 
 
 class HTTPClient(object):
