@@ -121,24 +121,10 @@ class HTTPClient(object):
         self.__logger = logging.getLogger(HTTPClient.__name__)
         self.__request = HTTPClient.HttpRequest()
 
-    # def get_host_port(self,url):
-
     def connect(self, host, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((host, port))
         return None
-
-    def get_code(self, data):
-        return None
-
-    def get_headers(self, data):
-        return None
-
-    def get_body(self, data):
-        return None
-
-    def sendall(self, data):
-        self.socket.sendall(data.encode(self.ENCODING))
 
     def close(self):
         self.socket.close()
